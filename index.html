@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#5e35b1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Storytime</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#fff8e1;color:#222;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#app{max-width:820px;margin:0 auto;padding:16px}
+h1{font-size:44px;color:#5e35b1;margin:0 0 24px;text-align:center}
+button{font:inherit;cursor:pointer;border:0;border-radius:14px;padding:10px 14px;background:#e0e0e0}
+.c{min-height:80vh;display:flex;flex-direction:column;justify-content:center;gap:20px}
+.big{width:100%;height:130px;border-radius:32px;color:#fff;font-size:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-shadow:0 5px 0 rgba(0,0,0,.2)}
+.big.v{background:#5e35b1}.big.o{background:#fb8c00}.big.g{background:#2e7d32;height:64px;font-size:22px;margin:12px 0 24px}
+header{display:flex;align-items:center;gap:12px;margin-bottom:12px}header h2{margin:0;font-size:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px;background:#8d6e63;padding:20px;border-radius:16px}
+.bookw{position:relative;color:#fff;text-align:center;font-weight:700}
+.book{aspect-ratio:.72;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:64px;box-shadow:3px 5px 8px rgba(0,0,0,.4);cursor:pointer}
+.book img,.media img,.media video{width:100%;height:100%;object-fit:cover}
+.del{position:absolute;top:2px;right:2px;padding:4px 8px;background:#fff9}
+.t{margin-top:6px;font-size:14px}
+.media{height:46vh;background:#fff;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.media img,.media video{object-fit:contain}.em{font-size:130px}
+.words{min-height:120px;text-align:center;font-size:28px;font-weight:600;line-height:1.7;padding:12px}
+.words span{padding:2px 6px;border-radius:8px;transition:background .15s}.words span.on{background:#fdd835;color:#5e35b1}
+.ctl{display:flex;justify-content:center;gap:24px}.ctl button{font-size:34px;background:none}
+.pg{text-align:center;font-size:14px}
+.end{font-size:32px}.end button{font-size:18px;margin:8px}
+input#ti,textarea{width:100%;font:inherit;padding:10px;border:1px solid #999;border-radius:10px;margin:8px 0}
+.row{display:flex;align-items:center;gap:8px;margin:8px 0}.sp{flex:1}
+.act{flex:1;color:#fff;background:#00897b;padding:14px;font-weight:700}.act.i{background:#3949ab}.act.p{background:#d81b60}
+.act small{display:block;font-weight:400}
+.th{width:80px;height:80px;border-radius:12px;background:#ddd;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:36px;flex:none}
+.th img{width:100%;height:100%;object-fit:cover}
+.card{background:#fff;border-radius:16px;padding:12px;margin:12px 0}
+button.r{background:#e53935;color:#fff}
+.bk{font-size:20px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),app=$('#app'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const U=new WeakMap(),url=b=>b&&(U.get(b)||(U.set(b,URL.createObjectURL(b)),U.get(b)));
+const SIL='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+// ── storage (IndexedDB, stays on this device) ──
+const DB=new Promise((res,rej)=>{const q=indexedDB.open('storytime',1);q.onupgradeneeded=()=>q.result.createObjectStore('books',{keyPath:'id'});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
+const tx=async(m,f)=>{const d=await DB;return new Promise((res,rej)=>{const t=d.transaction('books',m),r=f(t.objectStore('books'));t.oncomplete=()=>res(r.result);t.onerror=()=>rej(t.error)})};
+const all=()=>tx('readonly',s=>s.getAll()),put=b=>tx('readwrite',s=>s.put(b)),del=id=>tx('readwrite',s=>s.delete(id));
+
+const mk=(id,title,emoji,color,pages)=>({id,title,coverEmoji:emoji,color,cover:null,pages:pages.map(([e,t])=>({emoji:e,text:t,media:null,audio:null,video:false}))});
+const BUILTIN=[
+mk('goldilocks','Goldilocks and the Three Bears','🐻','#ffb74d',[
+['🏡','Once upon a time, three bears lived in a cosy little house in the woods.'],
+['🍲','One morning, they made porridge. It was too hot to eat, so they went for a walk.'],
+['👧','A little girl named Goldilocks found the house and walked right in.'],
+['🥣','She tried Papa Bear’s porridge. Too hot! Then Mama Bear’s. Too cold! Then Baby Bear’s. Just right! She ate it all up.'],
+['🪑','She tried Papa Bear’s chair. Too big! Mama Bear’s chair. Too soft! Baby Bear’s chair was just right, but it broke!'],
+['🛏️','Sleepy Goldilocks went upstairs. Baby Bear’s bed was just right, and she fell fast asleep.'],
+['😮','The three bears came home. “Someone has been eating my porridge!” cried Baby Bear. “And someone is sleeping in my bed!”'],
+['🏃‍♀️','Goldilocks woke up, saw the bears, and ran all the way home. She never went into the woods alone again.']]),
+mk('threepigs','The Three Little Pigs','🐷','#f48fb1',[
+['🐷','Once upon a time, three little pigs left home to build houses of their own.'],
+['🌾','The first little pig built his house out of straw. It was done very quickly.'],
+['🪵','The second little pig built his house out of sticks. He finished it in no time.'],
+['🧱','The third little pig worked hard all day and built his house out of strong bricks.'],
+['🐺','Along came a big bad wolf. “Little pig, little pig, let me come in!” “Not by the hair of my chinny chin chin!”'],
+['💨','“Then I’ll huff, and I’ll puff, and I’ll blow your house down!” And he blew down the straw house, and the stick house too.'],
+['🏠','The two pigs ran to the brick house. The wolf huffed and puffed, but the brick house did not fall down.'],
+['🎉','The wolf ran away, and the three little pigs lived happily ever after in the strong brick house.']])];
+async function books(){let b=await all();if(!b.length&&!localStorage.seeded){for(const x of BUILTIN)await put(x);localStorage.seeded=1;b=await all()}return b}
+
+// ── parent lock ──
+const gate=()=>{const a=3+Math.random()*7|0,b=3+Math.random()*7|0;return +prompt(`Grown-ups only 🔒\nWhat is ${a} × ${b} ?`)===a*b};
+
+// ── home + shelf ──
+let run=0,paused=false;const aud=new Audio();
+function stopAll(){run++;speechSynthesis.cancel();aud.pause()}
+function home(){stopAll();app.innerHTML=`<div class=c><h1>📚 Storytime</h1><button class="big v" id=s>📖<b>Story</b></button><button class="big o" id=a>➕<b>Add Story</b></button></div>`;
+ $('#s').onclick=shelf;$('#a').onclick=()=>gate()&&editor()}
+async function shelf(){stopAll();const bs=await books();
+ app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>My Bookshelf</h2></header><div class=grid>${bs.map(b=>`<div class=bookw><div class=book data-id="${b.id}" style="background:${b.color||'#42a5f5'}">${b.cover?`<img src="${url(b.cover)}">`:`<span>${b.coverEmoji||'📕'}</span>`}</div><div class=t>${esc(b.title)}</div><button class=del data-d="${b.id}">🗑</button></div>`).join('')}</div>`;
+ $('#h').onclick=home;
+ app.querySelectorAll('.book').forEach(e=>e.onclick=()=>read(bs.find(b=>b.id===e.dataset.id),shelf));
+ app.querySelectorAll('.del').forEach(e=>e.onclick=async()=>{if(gate()&&confirm('Delete this book?')){await del(e.dataset.d);shelf()}})}
+
+// ── reader: 2s pause per page, words light up ──
+function narrate(p,t,words,hl,my){
+ if(!t)return sleep(3000);
+ return new Promise(done=>{
+  if(p.audio){ // recorded voice: highlight by playback position
+   aud.src=url(p.audio);
+   aud.ontimeupdate=()=>{if(my!==run||!aud.duration)return;const x=aud.currentTime/aud.duration*t.length,k=words.findIndex(m=>m.index+m[0].length>=x);hl(k<0?words.length-1:k)};
+   aud.onended=aud.onerror=()=>done();aud.play().catch(()=>done());
+  }else{ // AI voice: browser reports each word
+   const u=new SpeechSynthesisUtterance(t);u.rate=.85;u.pitch=1.15;
+   u.onboundary=e=>{if(my!==run)return;let k=0;words.forEach((m,j)=>{if(m.index<=e.charIndex)k=j});hl(k)};
+   u.onend=u.onerror=()=>done();speechSynthesis.speak(u);
+  }})}
+function read(book,back){
+ let i=0;paused=false;stopAll();
+ aud.src=SIL;aud.play().catch(()=>{});speechSynthesis.speak(new SpeechSynthesisUtterance('')); // unlock audio on iPad
+ app.innerHTML=`<header><button class=bk id=b>⬅</button><h2>${esc(book.title)}</h2></header><div id=m class=media></div><div id=w class=words></div><div class=ctl><button id=p1>⏮</button><button id=pp>⏸</button><button id=n1>⏭</button></div><div id=pg class=pg></div>`;
+ const go=n=>{paused=false;$('#pp').textContent='⏸';page(n)};
+ $('#b').onclick=()=>{stopAll();back()};
+ $('#p1').onclick=()=>i>0&&go(i-1);
+ $('#n1').onclick=()=>i<book.pages.length-1&&go(i+1);
+ $('#pp').onclick=()=>{if(paused)return go(i);paused=true;stopAll();$('#pp').textContent='▶️';const v=$('#m video');v&&v.pause()};
+ async function page(n){
+  const my=++run;speechSynthesis.cancel();aud.pause();i=n;const p=book.pages[n],t=(p.text||'').trim(),words=[...t.matchAll(/\S+/g)];
+  $('#m').innerHTML=p.media?(p.video?`<video src="${url(p.media)}" autoplay muted loop playsinline></video>`:`<img src="${url(p.media)}">`):`<div class=em>${p.emoji||'📖'}</div>`;
+  $('#w').innerHTML=words.map(m=>`<span>${esc(m[0])}</span>`).join(' ');
+  $('#pg').textContent=`Page ${n+1} of ${book.pages.length}`;
+  const hl=k=>document.querySelectorAll('#w span').forEach((s,j)=>s.classList.toggle('on',j===k));
+  await sleep(2000);if(my!==run)return;
+  await narrate(p,t,words,hl,my);if(my!==run)return;
+  if(n+1<book.pages.length)return page(n+1);
+  $('#w').innerHTML='<div class=end>🌟 The End 🌟<br><button id=ra>Read again 🔁</button><button id=bs>Bookshelf 📚</button></div>';
+  $('#ra').onclick=()=>go(0);$('#bs').onclick=()=>{stopAll();back()};
+ }
+ page(0)}
+
+// ── add story ──
+const pick=(accept,multi)=>new Promise(r=>{const f=document.createElement('input');f.type='file';f.accept=accept;f.multiple=!!multi;f.onchange=()=>r([...f.files]);f.click()});
+async function shrink(f){try{const b=await createImageBitmap(f),s=Math.min(1,1600/Math.max(b.width,b.height)),c=document.createElement('canvas');c.width=b.width*s;c.height=b.height*s;c.getContext('2d').drawImage(b,0,0,c.width,c.height);return await new Promise(r=>c.toBlob(r,'image/jpeg',.85))}catch{return f}}
+const dur=f=>new Promise(r=>{const v=document.createElement('video');v.preload='metadata';v.onloadedmetadata=()=>r(v.duration);v.onerror=()=>r(0);v.src=URL.createObjectURL(f)});
+function editor(d){
+ d=d||{id:Date.now()+'',title:'',cover:null,pages:[]};let rec=null;
+ const card=(p,i)=>`<div class=card><div class=row><div class=th>${p.media?(p.video?'🎬':`<img src="${url(p.media)}">`):(p.emoji||'📖')}</div><b>Page ${i+1}</b><span class=sp></span><button data-a=up data-i=${i}>⬆</button><button data-a=dn data-i=${i}>⬇</button><button data-a=rm data-i=${i}>🗑</button></div><textarea rows=3 data-i=${i} placeholder="Narrative for this page">${esc(p.text)}</textarea><div class=row><label><input type=checkbox class=ai data-i=${i} ${p.ai?'checked':''}> 🤖 AI voice</label><span class=sp></span><button data-a=rec data-i=${i} class="${rec&&rec.i===i?'r':''}">${rec&&rec.i===i?'⏹ Stop':(p.audio?'🎙 Re-record':'🎙 Record')}</button><button data-a=ls data-i=${i}>▶️</button></div></div>`;
+ const act={
+  up:i=>{if(i>0)d.pages.splice(i-1,0,d.pages.splice(i,1)[0]);draw()},
+  dn:i=>{if(i<d.pages.length-1)d.pages.splice(i+1,0,d.pages.splice(i,1)[0]);draw()},
+  rm:i=>{d.pages.splice(i,1);draw()},
+  ls:i=>{const p=d.pages[i];speechSynthesis.cancel();if(!p.ai&&p.audio){aud.src=url(p.audio);aud.play()}else if(p.text)speechSynthesis.speak(new SpeechSynthesisUtterance(p.text))},
+  rec:async i=>{
+   if(rec){rec.mr.stop();return}
+   try{const s=await navigator.mediaDevices.getUserMedia({audio:true}),mr=new MediaRecorder(s),ch=[];
+    mr.ondataavailable=e=>ch.push(e.data);
+    mr.onstop=()=>{s.getTracks().forEach(t=>t.stop());d.pages[i].audio=new Blob(ch,{type:mr.mimeType});d.pages[i].ai=false;rec=null;draw()};
+    mr.start();rec={i,mr};draw()}catch{alert('Please allow the microphone.')}}};
+ function draw(){
+  app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>Add a Story</h2></header>
+  <input id=ti placeholder="Story title" value="${esc(d.title)}">
+  <div class=row><div class=th>${d.cover?`<img src="${url(d.cover)}">`:'🖼️'}</div><button class=act id=cv>📷 Cover Photo<small>(optional)</small></button></div>
+  <h3>Pages</h3><div class=row><button class="act i" id=ap>🖼️ Add Photo Pages</button><button class="act p" id=av>🎬 Add Video<small>(max 20s)</small></button></div>
+  ${d.pages.map(card).join('')}
+  <button class=act id=pv style="width:100%;background:#5e35b1">👁 Preview</button><button class="big g" id=sv>💾 Save to Library</button>`;
+  $('#ti').oninput=e=>d.title=e.target.value;
+  $('#h').onclick=()=>{if(!d.pages.length||confirm('Leave without saving?'))home()};
+  $('#cv').onclick=async()=>{const[f]=await pick('image/*');if(f){d.cover=await shrink(f);draw()}};
+  $('#ap').onclick=async()=>{for(const f of await pick('image/*',true))d.pages.push({media:await shrink(f),video:false,text:'',ai:true,audio:null});draw()};
+  $('#av').onclick=async()=>{const[f]=await pick('video/*');if(!f)return;const s=await dur(f);if(s>20.5)return alert(`That video is ${Math.round(s)}s. Please pick one of 20 seconds or less.`);d.pages.push({media:f,video:true,text:'',ai:true,audio:null});draw()};
+  app.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>act[b.dataset.a](+b.dataset.i));
+  app.querySelectorAll('textarea').forEach(t=>t.oninput=()=>d.pages[+t.dataset.i].text=t.value);
+  app.querySelectorAll('.ai').forEach(c=>c.onchange=()=>d.pages[+c.dataset.i].ai=c.checked);
+  const clean=()=>d.pages.map(p=>({media:p.media,video:p.video,emoji:p.emoji,text:p.text.trim(),audio:p.ai?null:p.audio}));
+  $('#pv').onclick=()=>{if(!d.pages.length)return alert('Add a page first.');read({title:d.title||'Preview',pages:clean()},()=>editor(d))};
+  $('#sv').onclick=async()=>{
+   if(!d.title.trim())return alert('Give your story a title.');if(!d.pages.length)return alert('Add at least one page.');
+   const f=d.pages.find(p=>p.media&&!p.video);
+   await put({id:d.id,title:d.title.trim(),cover:d.cover||(f&&f.media)||null,coverEmoji:'🎬',color:'#42a5f5',pages:clean()});shelf()};
+ }
+ draw()}
+
+home();
+navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); // ask browser not to evict stories
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
