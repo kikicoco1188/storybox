@@ -41,6 +41,8 @@ input#ti,textarea{width:100%;font:inherit;padding:10px;border:1px solid #999;bor
 .card{background:#fff;border-radius:16px;padding:12px;margin:12px 0}
 button.r{background:#e53935;color:#fff}
 .bk{font-size:20px}
+.ed{position:absolute;top:2px;left:2px;padding:4px 8px;background:#fff9}
+.big.s{background:#546e7a;height:80px;font-size:20px}
 </style>
 </head>
 <body>
@@ -84,13 +86,14 @@ const gate=()=>{const a=3+Math.random()*7|0,b=3+Math.random()*7|0;return +prompt
 // ── home + shelf ──
 let run=0,paused=false;const aud=new Audio();
 function stopAll(){run++;speechSynthesis.cancel();aud.pause()}
-function home(){stopAll();app.innerHTML=`<div class=c><h1>📚 Storytime</h1><button class="big v" id=s>📖<b>Story</b></button><button class="big o" id=a>➕<b>Add Story</b></button></div>`;
- $('#s').onclick=shelf;$('#a').onclick=()=>gate()&&editor()}
+function home(){stopAll();app.innerHTML=`<div class=c><h1>📚 Storytime</h1><button class="big v" id=s>📖<b>Story</b></button><button class="big o" id=a>➕<b>Add Story</b></button><button class="big s" id=g>⚙️<b>Grown-ups: backup and restore</b></button></div>`;
+ $('#s').onclick=shelf;$('#a').onclick=()=>gate()&&editor();$('#g').onclick=()=>gate()&&grown()}
 async function shelf(){stopAll();const bs=await books();
- app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>My Bookshelf</h2></header><div class=grid>${bs.map(b=>`<div class=bookw><div class=book data-id="${b.id}" style="background:${b.color||'#42a5f5'}">${b.cover?`<img src="${url(b.cover)}">`:`<span>${b.coverEmoji||'📕'}</span>`}</div><div class=t>${esc(b.title)}</div><button class=del data-d="${b.id}">🗑</button></div>`).join('')}</div>`;
+ app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>My Bookshelf</h2></header><div class=grid>${bs.map(b=>`<div class=bookw><div class=book data-id="${b.id}" style="background:${b.color||'#42a5f5'}">${b.cover?`<img src="${url(b.cover)}">`:`<span>${b.coverEmoji||'📕'}</span>`}</div><div class=t>${esc(b.title)}</div><button class=ed data-e="${b.id}">✏️</button><button class=del data-d="${b.id}">🗑</button></div>`).join('')}</div>`;
  $('#h').onclick=home;
  app.querySelectorAll('.book').forEach(e=>e.onclick=()=>read(bs.find(b=>b.id===e.dataset.id),shelf));
- app.querySelectorAll('.del').forEach(e=>e.onclick=async()=>{if(gate()&&confirm('Delete this book?')){await del(e.dataset.d);shelf()}})}
+ app.querySelectorAll('.del').forEach(e=>e.onclick=async()=>{if(gate()&&confirm('Delete this book?')){await del(e.dataset.d);shelf()}});
+ app.querySelectorAll('.ed').forEach(e=>e.onclick=()=>{if(!gate())return;const b=bs.find(x=>x.id===e.dataset.e);editor({...b,saved:true,pages:b.pages.map(p=>({...p,ai:!p.audio}))})})}
 
 // ── reader: 2s pause per page, words light up ──
 function narrate(p,t,words,hl,my){
@@ -134,11 +137,12 @@ async function shrink(f){try{const b=await createImageBitmap(f),s=Math.min(1,160
 const dur=f=>new Promise(r=>{const v=document.createElement('video');v.preload='metadata';v.onloadedmetadata=()=>r(v.duration);v.onerror=()=>r(0);v.src=URL.createObjectURL(f)});
 function editor(d){
  d=d||{id:Date.now()+'',title:'',cover:null,pages:[]};let rec=null;
- const card=(p,i)=>`<div class=card><div class=row><div class=th>${p.media?(p.video?'🎬':`<img src="${url(p.media)}">`):(p.emoji||'📖')}</div><b>Page ${i+1}</b><span class=sp></span><button data-a=up data-i=${i}>⬆</button><button data-a=dn data-i=${i}>⬇</button><button data-a=rm data-i=${i}>🗑</button></div><textarea rows=3 data-i=${i} placeholder="Narrative for this page">${esc(p.text)}</textarea><div class=row><label><input type=checkbox class=ai data-i=${i} ${p.ai?'checked':''}> 🤖 AI voice</label><span class=sp></span><button data-a=rec data-i=${i} class="${rec&&rec.i===i?'r':''}">${rec&&rec.i===i?'⏹ Stop':(p.audio?'🎙 Re-record':'🎙 Record')}</button><button data-a=ls data-i=${i}>▶️</button></div></div>`;
+ const card=(p,i)=>`<div class=card><div class=row><div class=th>${p.media?(p.video?'🎬':`<img src="${url(p.media)}">`):(p.emoji||'📖')}</div><b>Page ${i+1}</b><span class=sp></span>${p.media&&!p.video?`<button data-a=rot data-i=${i}>🔄</button>`:''}<button data-a=up data-i=${i}>⬆</button><button data-a=dn data-i=${i}>⬇</button><button data-a=rm data-i=${i}>🗑</button></div><textarea rows=3 data-i=${i} placeholder="Narrative for this page">${esc(p.text)}</textarea><div class=row><label><input type=checkbox class=ai data-i=${i} ${p.ai?'checked':''}> 🤖 AI voice</label><span class=sp></span><button data-a=rec data-i=${i} class="${rec&&rec.i===i?'r':''}">${rec&&rec.i===i?'⏹ Stop':(p.audio?'🎙 Re-record':'🎙 Record')}</button><button data-a=ls data-i=${i}>▶️</button></div></div>`;
  const act={
   up:i=>{if(i>0)d.pages.splice(i-1,0,d.pages.splice(i,1)[0]);draw()},
   dn:i=>{if(i<d.pages.length-1)d.pages.splice(i+1,0,d.pages.splice(i,1)[0]);draw()},
   rm:i=>{d.pages.splice(i,1);draw()},
+  rot:async i=>{try{d.pages[i].media=await rot(d.pages[i].media);draw()}catch{alert('Could not rotate this picture.')}},
   ls:i=>{const p=d.pages[i];speechSynthesis.cancel();if(!p.ai&&p.audio){aud.src=url(p.audio);aud.play()}else if(p.text)speechSynthesis.speak(new SpeechSynthesisUtterance(p.text))},
   rec:async i=>{
    if(rec){rec.mr.stop();return}
@@ -147,15 +151,16 @@ function editor(d){
     mr.onstop=()=>{s.getTracks().forEach(t=>t.stop());d.pages[i].audio=new Blob(ch,{type:mr.mimeType});d.pages[i].ai=false;rec=null;draw()};
     mr.start();rec={i,mr};draw()}catch{alert('Please allow the microphone.')}}};
  function draw(){
-  app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>Add a Story</h2></header>
+  app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>${d.saved?'Edit':'Add a'} Story</h2></header>
   <input id=ti placeholder="Story title" value="${esc(d.title)}">
-  <div class=row><div class=th>${d.cover?`<img src="${url(d.cover)}">`:'🖼️'}</div><button class=act id=cv>📷 Cover Photo<small>(optional)</small></button></div>
+  <div class=row><div class=th>${d.cover?`<img src="${url(d.cover)}">`:'🖼️'}</div><button class=act id=cv>📷 Cover Photo<small>(optional)</small></button>${d.cover?'<button id=rc>🔄</button>':''}</div>
   <h3>Pages</h3><div class=row><button class="act i" id=ap>🖼️ Add Photo Pages</button><button class="act p" id=av>🎬 Add Video<small>(max 20s)</small></button></div>
   ${d.pages.map(card).join('')}
   <button class=act id=pv style="width:100%;background:#5e35b1">👁 Preview</button><button class="big g" id=sv>💾 Save to Library</button>`;
   $('#ti').oninput=e=>d.title=e.target.value;
-  $('#h').onclick=()=>{if(!d.pages.length||confirm('Leave without saving?'))home()};
+  $('#h').onclick=()=>{if(!d.pages.length||confirm('Leave without saving?'))(d.saved?shelf:home)()};
   $('#cv').onclick=async()=>{const[f]=await pick('image/*');if(f){d.cover=await shrink(f);draw()}};
+  const rc=$('#rc');if(rc)rc.onclick=async()=>{try{d.cover=await rot(d.cover);draw()}catch{alert('Could not rotate.')}};
   $('#ap').onclick=async()=>{for(const f of await pick('image/*',true))d.pages.push({media:await shrink(f),video:false,text:'',ai:true,audio:null});draw()};
   $('#av').onclick=async()=>{const[f]=await pick('video/*');if(!f)return;const s=await dur(f);if(s>20.5)return alert(`That video is ${Math.round(s)}s. Please pick one of 20 seconds or less.`);d.pages.push({media:f,video:true,text:'',ai:true,audio:null});draw()};
   app.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>act[b.dataset.a](+b.dataset.i));
@@ -166,11 +171,41 @@ function editor(d){
   $('#sv').onclick=async()=>{
    if(!d.title.trim())return alert('Give your story a title.');if(!d.pages.length)return alert('Add at least one page.');
    const f=d.pages.find(p=>p.media&&!p.video);
-   await put({id:d.id,title:d.title.trim(),cover:d.cover||(f&&f.media)||null,coverEmoji:'🎬',color:'#42a5f5',pages:clean()});shelf()};
+   await put({id:d.id,title:d.title.trim(),cover:d.cover||(f&&f.media)||null,coverEmoji:d.coverEmoji||'🎬',color:d.color||'#42a5f5',pages:clean()});shelf()};
  }
  draw()}
 
 home();
+
+// ── rotate a picture 90° clockwise ──
+async function rot(f){const b=await createImageBitmap(f),c=document.createElement('canvas');c.width=b.height;c.height=b.width;const x=c.getContext('2d');x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(b,0,0);return new Promise(r=>c.toBlob(r,'image/jpeg',.9))}
+
+// ── grown-ups: backup and restore (one file holds every book, photo, video and voice) ──
+function grown(){stopAll();
+ app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>Grown-ups</h2></header>
+ <div class=card><button class=act id=bu style="width:100%">💾 Back up all books</button><p>Makes one file with every book, photo, video and voice recording. On iPad choose <b>Save to Files</b> (iCloud Drive is a good place).</p></div>
+ <div class=card><button class="act i" id=rs style="width:100%">📥 Restore from backup</button><p>Choose a <b>.storytime</b> backup file. Books in it are added; a book that already exists is replaced.</p></div>`;
+ $('#h').onclick=home;$('#bu').onclick=backup;$('#rs').onclick=restore}
+async function backup(){
+ try{
+  const bs=await all(),blobs=[],ref=b=>{if(!b)return null;blobs.push(b);return{n:blobs.length-1,t:b.type}};
+  const meta=bs.map(b=>({...b,cover:ref(b.cover),pages:b.pages.map(p=>({...p,media:ref(p.media),audio:ref(p.audio)}))}));
+  const head=new TextEncoder().encode(JSON.stringify({v:1,books:meta,sizes:blobs.map(b=>b.size)})),len=new Uint8Array(4);
+  new DataView(len.buffer).setUint32(0,head.length);
+  const file=new File(['STB1',len,head,...blobs],`storytime-backup-${new Date().toISOString().slice(0,10)}.storytime`,{type:'application/octet-stream'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:'Storytime backup'});return}catch(e){if(e.name==='AbortError')return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;a.click();
+ }catch(e){alert('Backup failed: '+e.message)}}
+async function restore(){
+ const[f]=await pick('');if(!f)return;
+ try{
+  if(await f.slice(0,4).text()!=='STB1')throw 0;
+  const hl=new DataView(await f.slice(4,8).arrayBuffer()).getUint32(0),head=JSON.parse(await f.slice(8,8+hl).text());
+  let off=8+hl;const bl=head.sizes.map(z=>{const b=f.slice(off,off+z);off+=z;return b});
+  const get=r=>r?bl[r.n].slice(0,bl[r.n].size,r.t):null;
+  for(const b of head.books)await put({...b,cover:get(b.cover),pages:b.pages.map(p=>({...p,media:get(p.media),audio:get(p.audio)}))});
+  localStorage.seeded=1;alert(`Restored ${head.books.length} book(s). 📚`);shelf();
+ }catch{alert('That file is not a Storytime backup.')}}
 navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); // ask browser not to evict stories
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 </script>
