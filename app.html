@@ -42,6 +42,8 @@ input#ti,textarea{width:100%;font:inherit;padding:10px;border:1px solid #999;bor
 button.r{background:#e53935;color:#fff}
 .bk{font-size:20px}
 select{font:inherit;padding:10px;border-radius:10px;flex:1}
+.hl{display:inline-block;padding:8px 14px;border-radius:999px;background:#ede7f6;color:#4527a0;text-decoration:none;font-size:15px;font-weight:600}
+.hl:focus-visible{outline:3px solid #5e35b1}
 .ed{position:absolute;top:2px;left:2px;padding:4px 8px;background:#fff9}
 .big.s{background:#546e7a;height:80px;font-size:20px}
 </style>
@@ -87,7 +89,7 @@ const gate=()=>{const a=3+Math.random()*7|0,b=3+Math.random()*7|0;return +prompt
 // ── home + shelf ──
 let run=0,paused=false;const aud=new Audio();
 function stopAll(){run++;speechSynthesis.cancel();aud.pause()}
-function home(){stopAll();app.innerHTML=`<div class=c><h1>📚 StoryBox</h1><button class="big v" id=s>📖<b>Story</b></button><button class="big o" id=a>➕<b>Add Story</b></button><button class="big s" id=g>⚙️<b>Grown-ups: backup and restore</b></button></div>`;
+function home(){stopAll();app.innerHTML=`<a class=hl href="./index.html">🏠 Home page</a><div class=c><h1>📚 StoryBox</h1><button class="big v" id=s>📖<b>Story</b></button><button class="big o" id=a>➕<b>Add Story</b></button><button class="big s" id=g>⚙️<b>Grown-ups: backup and restore</b></button></div>`;
  $('#s').onclick=shelf;$('#a').onclick=()=>gate()&&editor();$('#g').onclick=()=>gate()&&grown()}
 async function shelf(){stopAll();const bs=await books();
  app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>My Bookshelf</h2></header><div class=grid>${bs.map(b=>`<div class=bookw><div class=book data-id="${b.id}" style="background:${b.color||'#42a5f5'}">${b.cover?`<img src="${url(b.cover)}">`:`<span>${b.coverEmoji||'📕'}</span>`}</div><div class=t>${esc(b.title)}</div><button class=ed data-e="${b.id}">✏️</button><button class=del data-d="${b.id}">🗑</button></div>`).join('')}</div>`;

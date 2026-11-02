@@ -1,7 +1,7 @@
 {
   "name": "StoryBox",
   "short_name": "StoryBox",
-  "start_url": "./app.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
