@@ -58,8 +58,11 @@ const SIL='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAg
 
 // ── storage (IndexedDB, stays on this device) ──
 const DB=new Promise((res,rej)=>{const q=indexedDB.open('storytime',1);q.onupgradeneeded=()=>q.result.createObjectStore('books',{keyPath:'id'});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
-const tx=async(m,f)=>{const d=await DB;return new Promise((res,rej)=>{const t=d.transaction('books',m),r=f(t.objectStore('books'));t.oncomplete=()=>res(r.result);t.onerror=()=>rej(t.error)})};
-const all=()=>tx('readonly',s=>s.getAll()),put=b=>tx('readwrite',s=>s.put(b)),del=id=>tx('readwrite',s=>s.delete(id));
+const tx=async(m,f)=>{const d=await DB;return new Promise((res,rej)=>{const t=d.transaction('books',m),r=f(t.objectStore('books'));t.oncomplete=()=>res(r.result);t.onerror=t.onabort=()=>rej(t.error||new Error('storage blocked or full'))})};
+const enc=async b=>b&&b.size!==undefined?{__b:await b.arrayBuffer(),t:b.type}:b,dec=o=>o&&o.__b?new Blob([o.__b],{type:o.t}):o;
+const pack=async b=>({...b,cover:await enc(b.cover),pages:await Promise.all(b.pages.map(async p=>({...p,media:await enc(p.media),audio:await enc(p.audio)})))});
+const unpack=b=>({...b,cover:dec(b.cover),pages:b.pages.map(p=>({...p,media:dec(p.media),audio:dec(p.audio)}))});
+const all=async()=>(await tx('readonly',s=>s.getAll())).map(unpack),put=async b=>{const x=await pack(b);return tx('readwrite',s=>s.put(x))},del=id=>tx('readwrite',s=>s.delete(id));
 
 const mk=(id,title,emoji,color,pages)=>({id,title,coverEmoji:emoji,color,cover:null,pages:pages.map(([e,t])=>({emoji:e,text:t,media:null,audio:null,video:false}))});
 const BUILTIN=[
@@ -150,7 +153,7 @@ function read(book,back){
 
 // ── add story ──
 const pick=(accept,multi)=>new Promise(r=>{const f=document.createElement('input');f.type='file';f.accept=accept;f.multiple=!!multi;f.onchange=()=>r([...f.files]);f.click()});
-async function shrink(f){try{const b=await createImageBitmap(f),s=Math.min(1,1600/Math.max(b.width,b.height)),c=document.createElement('canvas');c.width=b.width*s;c.height=b.height*s;c.getContext('2d').drawImage(b,0,0,c.width,c.height);return await new Promise(r=>c.toBlob(r,'image/jpeg',.85))}catch{return f}}
+async function shrink(f){try{const b=await createImageBitmap(f),s=Math.min(1,1600/Math.max(b.width,b.height)),c=document.createElement('canvas');c.width=b.width*s;c.height=b.height*s;c.getContext('2d').drawImage(b,0,0,c.width,c.height);const o=await new Promise(r=>c.toBlob(r,'image/jpeg',.85));if(!o||!o.size)throw 0;return o}catch{throw new Error('bad picture')}}
 const dur=f=>new Promise(r=>{const v=document.createElement('video');v.preload='metadata';v.onloadedmetadata=()=>r(v.duration);v.onerror=()=>r(0);v.src=URL.createObjectURL(f)});
 function editor(d){
  d=d||{id:Date.now()+'',title:'',cover:null,pages:[]};d.lang=d.lang||'en-US';let rec=null;
@@ -179,10 +182,10 @@ function editor(d){
   $('#lg').onchange=e=>d.lang=e.target.value;
   $('#tv').onclick=()=>{speechSynthesis.cancel();if(VOICES.length&&!voiceFor(d.lang))return alert('This device has no voice for that language yet.\niPad: Settings > Accessibility > Spoken Content > Voices.\nWindows: Settings > Time & language > Speech.');speechSynthesis.speak(say((d.pages[0]&&d.pages[0].text)||'Once upon a time',d.lang))};
   $('#h').onclick=()=>{if(!d.pages.length||confirm('Leave without saving?'))(d.saved?shelf:home)()};
-  $('#cv').onclick=async()=>{const[f]=await pick('image/*');if(f){d.cover=await shrink(f);draw()}};
+  $('#cv').onclick=async()=>{const[f]=await pick('image/*');if(f){try{d.cover=await shrink(f);draw()}catch{alert('That picture could not be used. Please choose a JPEG or PNG.')}}};
   const rc=$('#rc');if(rc)rc.onclick=async()=>{try{d.cover=await rot(d.cover);draw()}catch{alert('Could not rotate.')}};
-  $('#ap').onclick=async()=>{for(const f of await pick('image/*',true))d.pages.push({media:await shrink(f),video:false,text:'',ai:true,audio:null});draw()};
-  $('#av').onclick=async()=>{const[f]=await pick('video/*');if(!f)return;const s=await dur(f);if(s>20.5)return alert(`That video is ${Math.round(s)}s. Please pick one of 20 seconds or less.`);d.pages.push({media:f,video:true,text:'',ai:true,audio:null});draw()};
+  $('#ap').onclick=async()=>{const bad=[];for(const f of await pick('image/*',true)){try{d.pages.push({media:await shrink(f),video:false,text:'',ai:true,audio:null})}catch{bad.push(f.name)}}draw();if(bad.length)alert('These pictures could not be used: '+bad.join(', ')+'\nPlease choose JPEG or PNG pictures.')};
+  $('#av').onclick=async()=>{const[f]=await pick('video/*');if(!f)return;const s=await dur(f);if(s>20.5)return alert(`That video is ${Math.round(s)}s. Please pick one of 20 seconds or less.`);if(f.size>120*1048576)return alert('That video is very large ('+Math.round(f.size/1048576)+' MB) and may not save. Please use a shorter clip or lower video quality.');d.pages.push({media:f,video:true,text:'',ai:true,audio:null});draw()};
   app.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>act[b.dataset.a](+b.dataset.i));
   app.querySelectorAll('textarea').forEach(t=>t.oninput=()=>d.pages[+t.dataset.i].text=t.value);
   app.querySelectorAll('.ai').forEach(c=>c.onchange=()=>d.pages[+c.dataset.i].ai=c.checked);
@@ -191,7 +194,11 @@ function editor(d){
   $('#sv').onclick=async()=>{
    if(!d.title.trim())return alert('Give your story a title.');if(!d.pages.length)return alert('Add at least one page.');
    const f=d.pages.find(p=>p.media&&!p.video);
-   await put({id:d.id,lang:d.lang,title:d.title.trim(),cover:d.cover||(f&&f.media)||null,coverEmoji:d.coverEmoji||'🎬',color:d.color||'#42a5f5',pages:clean()});shelf()};
+   const bk={id:d.id,lang:d.lang,title:d.title.trim(),cover:d.cover||(f&&f.media)||null,coverEmoji:d.coverEmoji||'🎬',color:d.color||'#42a5f5',pages:clean()};
+   try{await put(bk);const back=(await all()).find(x=>x.id===bk.id),bad=bk.pages.filter((p,i)=>p.media&&!(back&&back.pages[i]&&back.pages[i].media&&back.pages[i].media.size>0)).length;
+    if(bad)return alert(bad+' picture(s) or video(s) did not save. Your work is still here: please press Save again, or use fewer or smaller files.')}
+   catch(e){return alert('Could not save: '+(e.message||e)+'\nThe device storage may be full.')}
+   shelf()};
  }
  draw()}
 
@@ -205,27 +212,30 @@ function grown(){stopAll();
  app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>Grown-ups</h2></header>
  <div class=card><button class=act id=bu style="width:100%">💾 Back up all books</button><p>Makes one file with every book, photo, video and voice recording. On iPad choose <b>Save to Files</b> (iCloud Drive is a good place).</p></div>
  <div class=card><button class="act i" id=rs style="width:100%">📥 Restore from backup</button><p>Choose a <b>.storytime</b> backup file. Books in it are added; a book that already exists is replaced.</p></div>`;
- $('#h').onclick=home;$('#bu').onclick=backup;$('#rs').onclick=restore}
+ $('#h').onclick=home;$('#bu').onclick=backup;$('#rs').onclick=restore;
+ app.insertAdjacentHTML('beforeend','<p id=st class=pg></p>');
+ navigator.storage&&navigator.storage.estimate&&navigator.storage.estimate().then(e=>{$('#st').textContent=`Storage used: ${Math.round(e.usage/1048576)} MB of about ${Math.round(e.quota/1048576)} MB`})}
 async function backup(){
  try{
   const bs=await all(),blobs=[],ref=b=>{if(!b)return null;blobs.push(b);return{n:blobs.length-1,t:b.type}};
   const meta=bs.map(b=>({...b,cover:ref(b.cover),pages:b.pages.map(p=>({...p,media:ref(p.media),audio:ref(p.audio)}))}));
   const head=new TextEncoder().encode(JSON.stringify({v:1,books:meta,sizes:blobs.map(b=>b.size)})),len=new Uint8Array(4);
   new DataView(len.buffer).setUint32(0,head.length);
+  const empty=blobs.filter(z=>!z.size).length,sum=`Backup: ${bs.length} book(s), ${blobs.length} file(s), ${(blobs.reduce((a,z)=>a+z.size,0)/1048576).toFixed(1)} MB`+(empty?`\n⚠️ ${empty} file(s) were already empty or missing inside the app, so they cannot be backed up.`:'');
   const file=new File(['STB1',len,head,...blobs],`storytime-backup-${new Date().toISOString().slice(0,10)}.storytime`,{type:'application/octet-stream'});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:'Storytime backup'});return}catch(e){if(e.name==='AbortError')return}}
-  const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;a.click();
+  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:'StoryBox backup'});alert(sum);return}catch(e){if(e.name==='AbortError')return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;a.click();alert(sum);
  }catch(e){alert('Backup failed: '+e.message)}}
 async function restore(){
  const[f]=await pick('');if(!f)return;
  try{
-  if(await f.slice(0,4).text()!=='STB1')throw 0;
-  const hl=new DataView(await f.slice(4,8).arrayBuffer()).getUint32(0),head=JSON.parse(await f.slice(8,8+hl).text());
-  let off=8+hl;const bl=head.sizes.map(z=>{const b=f.slice(off,off+z);off+=z;return b});
-  const get=r=>r?bl[r.n].slice(0,bl[r.n].size,r.t):null;
+  const buf=await f.arrayBuffer(),td=new TextDecoder();if(td.decode(buf.slice(0,4))!=='STB1')throw new Error('This is not a StoryBox backup file.');
+  const hl=new DataView(buf).getUint32(4),head=JSON.parse(td.decode(buf.slice(8,8+hl)));
+  let off=8+hl;const bl=head.sizes.map(z=>{const b=buf.slice(off,off+z);off+=z;return b});if(off>buf.byteLength)throw new Error('The backup file is incomplete (it may not have finished downloading).');
+  const get=r=>r?new Blob([bl[r.n]],{type:r.t}):null;
   for(const b of head.books)await put({...b,cover:get(b.cover),pages:b.pages.map(p=>({...p,media:get(p.media),audio:get(p.audio)}))});
-  localStorage.seeded=1;alert(`Restored ${head.books.length} book(s). 📚`);shelf();
- }catch{alert('That file is not a Storytime backup.')}}
+  localStorage.seeded=1;const em=head.sizes.filter(z=>!z).length;alert(`Restored ${head.books.length} book(s) with ${head.sizes.length} file(s). 📚`+(em?`\n⚠️ ${em} file(s) in this backup were empty (already missing when the backup was made).`:''));shelf();
+ }catch(e){alert('Restore failed: '+(e&&e.message||'unknown error'))}}
 navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); // ask browser not to evict stories
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 </script>
