@@ -44,6 +44,10 @@ button.r{background:#e53935;color:#fff}
 select{font:inherit;padding:10px;border-radius:10px;flex:1}
 .hl{display:inline-block;padding:8px 14px;border-radius:999px;background:#ede7f6;color:#4527a0;text-decoration:none;font-size:15px;font-weight:600}
 .hl:focus-visible{outline:3px solid #5e35b1}
+#busy{position:fixed;inset:0;background:rgba(45,27,105,.78);display:flex;align-items:center;justify-content:center;z-index:99;padding:24px}
+#busy .bz{background:#fff;border-radius:20px;padding:28px 34px;text-align:center;font-size:18px;max-width:340px}
+.spin{width:48px;height:48px;margin:0 auto 14px;border:6px solid #d1c4e9;border-top-color:#5e35b1;border-radius:50%;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 .ed{position:absolute;top:2px;left:2px;padding:4px 8px;background:#fff9}
 .big.s{background:#546e7a;height:80px;font-size:20px}
 </style>
@@ -153,7 +157,13 @@ function read(book,back){
 
 // ── add story ──
 const pick=(accept,multi)=>new Promise(r=>{const f=document.createElement('input');f.type='file';f.accept=accept;f.multiple=!!multi;f.onchange=()=>r([...f.files]);f.click()});
-async function shrink(f){try{const b=await createImageBitmap(f),s=Math.min(1,1600/Math.max(b.width,b.height)),c=document.createElement('canvas');c.width=b.width*s;c.height=b.height*s;c.getContext('2d').drawImage(b,0,0,c.width,c.height);const o=await new Promise(r=>c.toBlob(r,'image/jpeg',.85));if(!o||!o.size)throw 0;return o}catch{throw new Error('bad picture')}}
+async function shrink(f){
+ const out=c=>new Promise(r=>c.toBlob(r,'image/jpeg',.85));
+ const cv=(src,w,h)=>{const k=Math.min(1,1600/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));c.getContext('2d').drawImage(src,0,0,c.width,c.height);return c};
+ try{const b=await createImageBitmap(f),o=await out(cv(b,b.width,b.height));if(b.close)b.close();if(o&&o.size)return o}catch{}
+ try{const u=URL.createObjectURL(f),im=new Image();im.src=u;await im.decode();const o=await out(cv(im,im.naturalWidth,im.naturalHeight));URL.revokeObjectURL(u);if(o&&o.size)return o}catch{}
+ if(/^image\/(jpeg|png|gif|webp)/.test(f.type)&&f.size)return new Blob([await f.arrayBuffer()],{type:f.type}); // last resort: keep the original
+ throw new Error('bad picture')}
 const dur=f=>new Promise(r=>{const v=document.createElement('video');v.preload='metadata';v.onloadedmetadata=()=>r(v.duration);v.onerror=()=>r(0);v.src=URL.createObjectURL(f)});
 function editor(d){
  d=d||{id:Date.now()+'',title:'',cover:null,pages:[]};d.lang=d.lang||'en-US';let rec=null;
@@ -182,9 +192,9 @@ function editor(d){
   $('#lg').onchange=e=>d.lang=e.target.value;
   $('#tv').onclick=()=>{speechSynthesis.cancel();if(VOICES.length&&!voiceFor(d.lang))return alert('This device has no voice for that language yet.\niPad: Settings > Accessibility > Spoken Content > Voices.\nWindows: Settings > Time & language > Speech.');speechSynthesis.speak(say((d.pages[0]&&d.pages[0].text)||'Once upon a time',d.lang))};
   $('#h').onclick=()=>{if(!d.pages.length||confirm('Leave without saving?'))(d.saved?shelf:home)()};
-  $('#cv').onclick=async()=>{const[f]=await pick('image/*');if(f){try{d.cover=await shrink(f);draw()}catch{alert('That picture could not be used. Please choose a JPEG or PNG.')}}};
+  $('#cv').onclick=async()=>{const[f]=await pick('image/*');if(f){busy('Adding cover… ⏳');await sleep(30);try{d.cover=await shrink(f)}catch{alert('That picture could not be used. Please choose a JPEG or PNG.')}busy();draw()}};
   const rc=$('#rc');if(rc)rc.onclick=async()=>{try{d.cover=await rot(d.cover);draw()}catch{alert('Could not rotate.')}};
-  $('#ap').onclick=async()=>{const bad=[];for(const f of await pick('image/*',true)){try{d.pages.push({media:await shrink(f),video:false,text:'',ai:true,audio:null})}catch{bad.push(f.name)}}draw();if(bad.length)alert('These pictures could not be used: '+bad.join(', ')+'\nPlease choose JPEG or PNG pictures.')};
+  $('#ap').onclick=async()=>{const fs=await pick('image/*',true),bad=[];for(const [i,f] of fs.entries()){busy(`Adding photo ${i+1} of ${fs.length}… ⏳`);await sleep(30);try{d.pages.push({media:await shrink(f),video:false,text:'',ai:true,audio:null})}catch{bad.push(f.name)}}busy();draw();if(bad.length)alert('These pictures could not be used: '+bad.join(', ')+'\nPlease choose JPEG or PNG pictures.')};
   $('#av').onclick=async()=>{const[f]=await pick('video/*');if(!f)return;const s=await dur(f);if(s>20.5)return alert(`That video is ${Math.round(s)}s. Please pick one of 20 seconds or less.`);if(f.size>120*1048576)return alert('That video is very large ('+Math.round(f.size/1048576)+' MB) and may not save. Please use a shorter clip or lower video quality.');d.pages.push({media:f,video:true,text:'',ai:true,audio:null});draw()};
   app.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>act[b.dataset.a](+b.dataset.i));
   app.querySelectorAll('textarea').forEach(t=>t.oninput=()=>d.pages[+t.dataset.i].text=t.value);
@@ -208,34 +218,42 @@ home();
 async function rot(f){const b=await createImageBitmap(f),c=document.createElement('canvas');c.width=b.height;c.height=b.width;const x=c.getContext('2d');x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(b,0,0);return new Promise(r=>c.toBlob(r,'image/jpeg',.9))}
 
 // ── grown-ups: backup and restore (one file holds every book, photo, video and voice) ──
-function grown(){stopAll();
+async function grown(){stopAll();
+ const bs=await all(),sz=k=>(k.cover?k.cover.size:0)+k.pages.reduce((n,p)=>n+(p.media?p.media.size:0)+(p.audio?p.audio.size:0),0);
  app.innerHTML=`<header><button class=bk id=h>⬅</button><h2>Grown-ups</h2></header>
- <div class=card><button class=act id=bu style="width:100%">💾 Back up all books</button><p>Makes one file with every book, photo, video and voice recording. On iPad choose <b>Save to Files</b> (iCloud Drive is a good place).</p></div>
+ <div class=card><b>💾 Back up</b><p>Choose which books to save into one file (photos, videos and voices included). On iPad choose <b>Save to Files</b>.</p>
+ <div class=row><button id=sa>Select all</button><button id=sn>Select none</button></div>
+ ${bs.map(k=>`<label class=row><input type=checkbox class=bx style="width:24px;height:24px" value="${esc(k.id)}" checked><span>${esc(k.title)} <small>(${(sz(k)/1048576).toFixed(1)} MB)</small></span></label>`).join('')||'<p>No books yet.</p>'}
+ <button class=act id=bu style="width:100%">💾 Back up</button></div>
  <div class=card><button class="act i" id=rs style="width:100%">📥 Restore from backup</button><p>Choose a <b>.storytime</b> backup file. Books in it are added; a book that already exists is replaced.</p></div>`;
- $('#h').onclick=home;$('#bu').onclick=backup;$('#rs').onclick=restore;
+ const bx=()=>[...app.querySelectorAll('.bx')],upd=()=>{const n=bx().filter(x=>x.checked).length;$('#bu').textContent=`💾 Back up ${n===bx().length?'all':n} book${n===1?'':'s'}`;$('#bu').disabled=!n};
+ bx().forEach(x=>x.onchange=upd);upd();
+ $('#sa').onclick=()=>{bx().forEach(x=>x.checked=true);upd()};$('#sn').onclick=()=>{bx().forEach(x=>x.checked=false);upd()};
+ $('#h').onclick=home;$('#bu').onclick=()=>backup(bx().filter(x=>x.checked).map(x=>x.value));$('#rs').onclick=restore;
  app.insertAdjacentHTML('beforeend','<p id=st class=pg></p>');
  navigator.storage&&navigator.storage.estimate&&navigator.storage.estimate().then(e=>{$('#st').textContent=`Storage used: ${Math.round(e.usage/1048576)} MB of about ${Math.round(e.quota/1048576)} MB`})}
-async function backup(){
+function busy(m){let o=$('#busy');if(!m){o&&o.remove();return}if(!o){o=document.createElement('div');o.id='busy';o.innerHTML='<div class=bz><div class=spin></div><p></p><small>Please keep this screen open</small></div>';document.body.appendChild(o)}o.querySelector('p').textContent=m}
+async function backup(ids){
  try{
-  const bs=await all(),blobs=[],ref=b=>{if(!b)return null;blobs.push(b);return{n:blobs.length-1,t:b.type}};
+  busy('Reading your books… 📚');await sleep(50);const bs=(await all()).filter(k=>!ids||ids.includes(k.id)),blobs=[],ref=b=>{if(!b)return null;blobs.push(b);return{n:blobs.length-1,t:b.type}};
   const meta=bs.map(b=>({...b,cover:ref(b.cover),pages:b.pages.map(p=>({...p,media:ref(p.media),audio:ref(p.audio)}))}));
   const head=new TextEncoder().encode(JSON.stringify({v:1,books:meta,sizes:blobs.map(b=>b.size)})),len=new Uint8Array(4);
   new DataView(len.buffer).setUint32(0,head.length);
-  const empty=blobs.filter(z=>!z.size).length,sum=`Backup: ${bs.length} book(s), ${blobs.length} file(s), ${(blobs.reduce((a,z)=>a+z.size,0)/1048576).toFixed(1)} MB`+(empty?`\n⚠️ ${empty} file(s) were already empty or missing inside the app, so they cannot be backed up.`:'');
+  busy(`Packing ${blobs.length} file(s)… please wait ⏳`);await sleep(50);const empty=blobs.filter(z=>!z.size).length,sum=`Backup: ${bs.length} book(s), ${blobs.length} file(s), ${(blobs.reduce((a,z)=>a+z.size,0)/1048576).toFixed(1)} MB`+(empty?`\n⚠️ ${empty} file(s) were already empty or missing inside the app, so they cannot be backed up.`:'');
   const file=new File(['STB1',len,head,...blobs],`storytime-backup-${new Date().toISOString().slice(0,10)}.storytime`,{type:'application/octet-stream'});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:'StoryBox backup'});alert(sum);return}catch(e){if(e.name==='AbortError')return}}
+  busy();if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:'StoryBox backup'});alert(sum);return}catch(e){if(e.name==='AbortError')return}}
   const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;a.click();alert(sum);
- }catch(e){alert('Backup failed: '+e.message)}}
+ }catch(e){busy();alert('Backup failed: '+e.message)}}
 async function restore(){
  const[f]=await pick('');if(!f)return;
  try{
-  const buf=await f.arrayBuffer(),td=new TextDecoder();if(td.decode(buf.slice(0,4))!=='STB1')throw new Error('This is not a StoryBox backup file.');
+  busy('Reading backup file… ⏳');await sleep(50);const buf=await f.arrayBuffer(),td=new TextDecoder();if(td.decode(buf.slice(0,4))!=='STB1')throw new Error('This is not a StoryBox backup file.');
   const hl=new DataView(buf).getUint32(4),head=JSON.parse(td.decode(buf.slice(8,8+hl)));
   let off=8+hl;const bl=head.sizes.map(z=>{const b=buf.slice(off,off+z);off+=z;return b});if(off>buf.byteLength)throw new Error('The backup file is incomplete (it may not have finished downloading).');
   const get=r=>r?new Blob([bl[r.n]],{type:r.t}):null;
-  for(const b of head.books)await put({...b,cover:get(b.cover),pages:b.pages.map(p=>({...p,media:get(p.media),audio:get(p.audio)}))});
-  localStorage.seeded=1;const em=head.sizes.filter(z=>!z).length;alert(`Restored ${head.books.length} book(s) with ${head.sizes.length} file(s). 📚`+(em?`\n⚠️ ${em} file(s) in this backup were empty (already missing when the backup was made).`:''));shelf();
- }catch(e){alert('Restore failed: '+(e&&e.message||'unknown error'))}}
+  for(const [i,b] of head.books.entries()){busy(`Restoring book ${i+1} of ${head.books.length}… ⏳`);await put({...b,cover:get(b.cover),pages:b.pages.map(p=>({...p,media:get(p.media),audio:get(p.audio)}))})}
+  localStorage.seeded=1;busy();const em=head.sizes.filter(z=>!z).length;alert(`Restored ${head.books.length} book(s) with ${head.sizes.length} file(s). 📚`+(em?`\n⚠️ ${em} file(s) in this backup were empty (already missing when the backup was made).`:''));shelf();
+ }catch(e){busy();alert('Restore failed: '+(e&&e.message||'unknown error'))}}
 navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); // ask browser not to evict stories
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 </script>
