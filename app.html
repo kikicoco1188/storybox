@@ -95,6 +95,8 @@ const gate=()=>{const a=3+Math.random()*7|0,b=3+Math.random()*7|0;return +prompt
 
 // ── home + shelf ──
 let run=0,paused=false;const aud=new Audio();
+let _lastErr=0;function oops(e){const r=e&&(e.reason||e.error);if(r&&(r.name==='SecurityError'||r.name==='NotAllowedError'))return;busy();const t=Date.now();if(t-_lastErr<5000)return;_lastErr=t;console.error(String((r&&r.message)||(e&&e.message)||e));alert('Something went wrong: '+((r&&r.message)||(e&&e.message)||e))}
+addEventListener('error',oops);addEventListener('unhandledrejection',oops);
 function stopAll(){run++;speechSynthesis.cancel();aud.pause()}
 function home(){stopAll();app.innerHTML=`<a class=hl href="./index.html">🏠 Home page</a><div class=c><h1>📚 StoryBox</h1><button class="big v" id=s>📖<b>Story</b></button><button class="big o" id=a>➕<b>Add Story</b></button><button class="big s" id=g>⚙️<b>Grown-ups: backup and restore</b></button></div>`;
  $('#s').onclick=shelf;$('#a').onclick=()=>gate()&&editor();$('#g').onclick=()=>gate()&&grown()}
@@ -156,7 +158,14 @@ function read(book,back){
  page(0)}
 
 // ── add story ──
-const pick=(accept,multi)=>new Promise(r=>{const f=document.createElement('input');f.type='file';f.accept=accept;f.multiple=!!multi;f.onchange=()=>r([...f.files]);f.click()});
+const pick=(accept,multi)=>new Promise(r=>{
+ document.querySelectorAll('input.pk').forEach(x=>x.remove());
+ const f=document.createElement('input');f.type='file';f.className='pk';f.accept=accept;f.multiple=!!multi;
+ f.style.cssText='position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';document.body.appendChild(f);
+ let done=0;
+ f.addEventListener('change',()=>{if(done)return;done=1;r([...f.files])});
+ f.addEventListener('cancel',()=>{if(done)return;done=1;r([]);f.remove()});
+ f.click()});
 async function shrink(f){
  const out=c=>new Promise(r=>c.toBlob(r,'image/jpeg',.85));
  const cv=(src,w,h)=>{const k=Math.min(1,1600/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));c.getContext('2d').drawImage(src,0,0,c.width,c.height);return c};
@@ -212,7 +221,7 @@ function editor(d){
  }
  draw()}
 
-home();
+DB.catch(()=>{});home();books().catch(()=>{});
 
 // ── rotate a picture 90° clockwise ──
 async function rot(f){const b=await createImageBitmap(f),c=document.createElement('canvas');c.width=b.height;c.height=b.width;const x=c.getContext('2d');x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(b,0,0);return new Promise(r=>c.toBlob(r,'image/jpeg',.9))}
@@ -226,13 +235,13 @@ async function grown(){stopAll();
  ${bs.map(k=>`<label class=row><input type=checkbox class=bx style="width:24px;height:24px" value="${esc(k.id)}" checked><span>${esc(k.title)} <small>(${(sz(k)/1048576).toFixed(1)} MB)</small></span></label>`).join('')||'<p>No books yet.</p>'}
  <button class=act id=bu style="width:100%">💾 Back up</button></div>
  <div class=card><button class="act i" id=rs style="width:100%">📥 Restore from backup</button><p>Choose a <b>.storytime</b> backup file. Books in it are added; a book that already exists is replaced.</p></div>`;
- const bx=()=>[...app.querySelectorAll('.bx')],upd=()=>{const n=bx().filter(x=>x.checked).length;$('#bu').textContent=`💾 Back up ${n===bx().length?'all':n} book${n===1?'':'s'}`;$('#bu').disabled=!n};
+ const bx=()=>[...app.querySelectorAll('.bx')],upd=()=>{const n=bx().filter(x=>x.checked).length;$('#bu').textContent=(n===bx().length?'💾 Back up all books':`💾 Back up ${n} book${n===1?'':'s'}`);$('#bu').disabled=!n};
  bx().forEach(x=>x.onchange=upd);upd();
  $('#sa').onclick=()=>{bx().forEach(x=>x.checked=true);upd()};$('#sn').onclick=()=>{bx().forEach(x=>x.checked=false);upd()};
  $('#h').onclick=home;$('#bu').onclick=()=>backup(bx().filter(x=>x.checked).map(x=>x.value));$('#rs').onclick=restore;
  app.insertAdjacentHTML('beforeend','<p id=st class=pg></p>');
  navigator.storage&&navigator.storage.estimate&&navigator.storage.estimate().then(e=>{$('#st').textContent=`Storage used: ${Math.round(e.usage/1048576)} MB of about ${Math.round(e.quota/1048576)} MB`})}
-function busy(m){let o=$('#busy');if(!m){o&&o.remove();return}if(!o){o=document.createElement('div');o.id='busy';o.innerHTML='<div class=bz><div class=spin></div><p></p><small>Please keep this screen open</small></div>';document.body.appendChild(o)}o.querySelector('p').textContent=m}
+function busy(m){clearTimeout(window._bt);let o=$('#busy');if(!m){o&&o.remove();return}window._bt=setTimeout(()=>busy(),90000);if(!o){o=document.createElement('div');o.id='busy';o.innerHTML='<div class=bz><div class=spin></div><p></p><small>Please keep this screen open</small></div>';document.body.appendChild(o)}o.querySelector('p').textContent=m}
 async function backup(ids){
  try{
   busy('Reading your books… 📚');await sleep(50);const bs=(await all()).filter(k=>!ids||ids.includes(k.id)),blobs=[],ref=b=>{if(!b)return null;blobs.push(b);return{n:blobs.length-1,t:b.type}};
@@ -254,8 +263,8 @@ async function restore(){
   for(const [i,b] of head.books.entries()){busy(`Restoring book ${i+1} of ${head.books.length}… ⏳`);await put({...b,cover:get(b.cover),pages:b.pages.map(p=>({...p,media:get(p.media),audio:get(p.audio)}))})}
   localStorage.seeded=1;busy();const em=head.sizes.filter(z=>!z).length;alert(`Restored ${head.books.length} book(s) with ${head.sizes.length} file(s). 📚`+(em?`\n⚠️ ${em} file(s) in this backup were empty (already missing when the backup was made).`:''));shelf();
  }catch(e){busy();alert('Restore failed: '+(e&&e.message||'unknown error'))}}
-navigator.storage&&navigator.storage.persist&&navigator.storage.persist(); // ask browser not to evict stories
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist().catch(()=>{})}catch{} // ask browser not to evict stories
+try{if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{})}catch{}
 </script>
 </body>
 </html>
